@@ -1,0 +1,346 @@
+# Instruct curriculum for a coding session plus ordinary conversation.
+# Twenty-two categories, 80 questions each, 1760 rows. No tools, no files, no harnesses.
+# Generate this to its own trace directory. Do not write it into a live code-agent shard.
+
+name: code_instruct
+categories:
+  - id: agent_help
+    count: 80
+    kind: trace
+    match: open
+    template: |
+      JSON key: question.
+      question is a greeting or "what can you do?" from someone starting a coding session.
+      No tools, no files, no answer.
+    example:
+      question: Hey, I just opened the repo. What can you help with?
+
+  - id: explain
+    count: 80
+    kind: trace
+    match: open
+    template: |
+      JSON key: question.
+      question contains a short snippet, diff, or error. Ask what it does or why it is wrong.
+      No tools, no files, no answer.
+    example:
+      question: |
+        What does this do?
+        def clamp(n, low, high):
+            return max(low, min(n, high))
+
+  - id: error_next
+    count: 80
+    kind: trace
+    match: open
+    template: |
+      JSON key: question.
+      question pastes a traceback and asks what it means and what to do next.
+      Do not include a patch. No tools, no files, no answer.
+    example:
+      question: |
+        KeyError: 'user_id'
+        File "app.py", line 14, in load
+            return row["user_id"]
+        What does this mean, and what should I check next?
+
+  - id: plan_first
+    count: 80
+    kind: trace
+    match: open
+    template: |
+      JSON key: question.
+      question asks for a plan and says not to edit anything yet.
+      No tools, no files, no answer.
+    example:
+      question: I want to add a retry around the upload call. Plan it, but do not edit any files yet.
+
+  - id: unsure
+    count: 80
+    kind: trace
+    match: open
+    template: |
+      JSON key: question.
+      question asks about a file, a line, or an input that is not in the message.
+      No tools, no files, no answer.
+    example:
+      question: Is the timeout in config.py still 30, or did we change it?
+
+  - id: scope
+    count: 80
+    kind: trace
+    match: open
+    template: |
+      JSON key: question.
+      question asks for something outside this coding session, such as sending email or browsing the web.
+      No tools, no files, no answer.
+    example:
+      question: Can you email the diff to my teammate and book the review for Thursday?
+
+  - id: clarify
+    count: 80
+    kind: trace
+    match: open
+    user_turns: 3
+    template: |
+      JSON key: turns, a list of exactly 3 user messages and no assistant messages.
+      The first turn is a coding request that is missing one concrete fact.
+      The second turn answers that one fact.
+      The third turn says to go ahead with the plan, and says the files have not been edited yet.
+      No tools, no files, no answer.
+    example:
+      turns:
+        - Add a timeout to the client.
+        - Ten seconds, and only on the upload call.
+        - Ok, tell me the plan. Don't edit anything yet.
+
+  - id: followup
+    count: 80
+    kind: trace
+    match: open
+    user_turns: 2
+    template: |
+      JSON key: turns, a list of exactly 2 user messages and no assistant messages.
+      The first turn asks what a short snippet does.
+      The second turn asks a further question about that same snippet.
+      No tools, no files, no answer.
+    example:
+      turns:
+        - |
+          What does this return when names is empty?
+          def label(names):
+              return ", ".join(names) or "none"
+        - And if names is None instead of an empty list?
+
+  - id: change_mind
+    count: 80
+    kind: trace
+    match: open
+    user_turns: 3
+    template: |
+      JSON key: turns, a list of exactly 3 user messages and no assistant messages.
+      The first turn asks for an edit to one file.
+      The second turn says to stop, undo, or switch to a different file.
+      The third turn asks the assistant to confirm it will follow the latest instruction.
+      No tools, no files, no answer.
+    example:
+      turns:
+        - Rename the helper in parse.py to load_row.
+        - Stop. Leave parse.py alone and look at export.py instead.
+        - Just confirm you are not going to touch parse.py.
+
+  - id: adjust
+    count: 80
+    kind: trace
+    match: open
+    user_turns: 2
+    template: |
+      JSON key: turns, a list of exactly 2 user messages and no assistant messages.
+      The first turn asks for an explanation of a small piece of code.
+      The second turn asks for a shorter, longer, or simpler version of that explanation.
+      No tools, no files, no answer.
+    example:
+      turns:
+        - Explain why this loop skips the header row.
+        - Shorter, please. Two sentences.
+
+  - id: correct_me
+    count: 80
+    kind: trace
+    match: open
+    user_turns: 2
+    template: |
+      JSON key: turns, a list of exactly 2 user messages and no assistant messages.
+      The first turn pastes a short snippet.
+      The second turn states a cause that the snippet shows is wrong.
+      No tools, no files, no answer. Do not include a patch.
+    example:
+      turns:
+        - |
+          total = sum(row[1] for row in rows)
+          print(total / len(rows))
+        - The bug is that sum is imported from the wrong module, right?
+
+  - id: status
+    count: 80
+    kind: trace
+    match: open
+    user_turns: 2
+    template: |
+      JSON key: turns, a list of exactly 2 user messages and no assistant messages.
+      The first turn asks for a code change and says not to edit yet.
+      The second turn asks whether the assistant is done or what it changed.
+      No tools, no files, no answer.
+    example:
+      turns:
+        - Add a bounds check to the index, but don't edit yet.
+        - Are you done? What did you change?
+
+  - id: chat
+    count: 80
+    kind: trace
+    match: open
+    user_turns: 3
+    template: |
+      JSON key: turns, a list of exactly 3 user messages and no assistant messages.
+      Ordinary back-and-forth: an opinion, a plan, or a short personal question.
+      No ticket language, no tools, no files, no answer.
+    example:
+      turns:
+        - I keep rewriting the same function. Do you think that means the interface is wrong?
+        - Maybe. I also just don't want to look at it tonight.
+        - What would you do, leave it until morning?
+
+  - id: recall
+    count: 80
+    kind: trace
+    match: open
+    user_turns: 3
+    template: |
+      JSON key: turns, a list of exactly 3 user messages and no assistant messages.
+      The first turn states a preference or a fact.
+      The second turn talks about something else.
+      The third turn asks the assistant to use what was said in the first turn.
+      No tools, no files, no answer.
+    example:
+      turns:
+        - I want the short version of things. Two sentences at most.
+        - The build took nine minutes again.
+        - Given what I said earlier, how should you answer me about that build?
+
+  - id: tone
+    count: 80
+    kind: trace
+    match: open
+    user_turns: 2
+    template: |
+      JSON key: turns, a list of exactly 2 user messages and no assistant messages.
+      The first turn asks a normal question.
+      The second turn asks the assistant to be more direct, warmer, or less formal.
+      No tools, no files, no answer.
+    example:
+      turns:
+        - I'm stuck choosing between two names for this module.
+        - Be more direct. Just pick one.
+
+  - id: misread
+    count: 80
+    kind: trace
+    match: open
+    user_turns: 2
+    template: |
+      JSON key: turns, a list of exactly 2 user messages and no assistant messages.
+      The first turn can be read two ways.
+      The second turn says the first reply took the wrong reading and states the intended one.
+      No tools, no files, no answer.
+    example:
+      turns:
+        - Can you close the tab?
+        - I meant the browser tab with the docs, not a code change.
+
+  - id: decide
+    count: 80
+    kind: trace
+    match: open
+    user_turns: 3
+    template: |
+      JSON key: turns, a list of exactly 3 user messages and no assistant messages.
+      The first turn asks the assistant to choose between two options.
+      The second turn picks one of them.
+      The third turn asks the assistant to commit to that pick.
+      No tools, no files, no answer.
+    example:
+      turns:
+        - Should the retry wait be fixed or exponential?
+        - Let's do fixed.
+        - Ok, stick with that. What does the plan look like?
+
+  - id: handoff
+    count: 80
+    kind: trace
+    match: open
+    user_turns: 3
+    template: |
+      JSON key: turns, a list of exactly 3 user messages and no assistant messages.
+      The first two turns are ordinary conversation.
+      The last turn asks for help with a specific piece of code, and includes the snippet.
+      No tools, no files, no answer.
+    example:
+      turns:
+        - This review has gone on too long.
+        - I keep losing the thread every time someone changes the subject.
+        - |
+          While we're here, what is wrong with this?
+          def total(rows):
+              return sum(row.amount for row in rows) / 0
+
+  - id: rewrite
+    count: 80
+    kind: trace
+    match: open
+    user_turns: 2
+    template: |
+      JSON key: turns, a list of exactly 2 user messages and no assistant messages.
+      The first turn pastes a short everyday message, note, or paragraph, not code, and asks for a clearer version.
+      The second turn asks for a change in tone or length.
+      No trivia, no essay, no tools, no files, no answer.
+    example:
+      turns:
+        - |
+          Make this easier to read.
+          Hey just checking if you saw my note about Thursday, I can do morning but not after three because of the other thing, let me know.
+        - Warmer, and shorter.
+
+  - id: summarize
+    count: 80
+    kind: trace
+    match: open
+    user_turns: 2
+    template: |
+      JSON key: turns, a list of exactly 2 user messages and no assistant messages.
+      The first turn pastes a short note, thread, or plan, not code, and asks for the point.
+      The second turn asks what was left out, or what the user should do next.
+      No trivia, no essay, no tools, no files, no answer.
+    example:
+      turns:
+        - |
+          What's the point of this thread?
+          Sam: Can we move the tasting to Friday?
+          Priya: Friday works if we start at 4.
+          Sam: 4 is too late for the vendor. What about 2?
+          Priya: 2 is fine. I'll tell them.
+        - What should I tell the vendor?
+
+  - id: howto
+    count: 80
+    kind: trace
+    match: open
+    user_turns: 3
+    template: |
+      JSON key: turns, a list of exactly 3 user messages and no assistant messages.
+      The first turn asks how to do a practical everyday thing.
+      The second turn adds a constraint, such as time, what they have on hand, or who it is for.
+      The third turn asks the assistant to pick one way and stick to it.
+      Not a trivia question, not code, no tools, no files, no answer.
+    example:
+      turns:
+        - How do I get a stubborn label off a glass jar?
+        - I only have dish soap and a sponge. No razor.
+        - Pick one method and tell me the steps.
+
+  - id: draft
+    count: 80
+    kind: trace
+    match: open
+    user_turns: 3
+    template: |
+      JSON key: turns, a list of exactly 3 user messages and no assistant messages.
+      The first turn asks for a message the user can send, such as a text or a short email.
+      The second turn adds a fact the message must include, or something it must leave out.
+      The third turn asks to see the message.
+      Not code, no tools, no files, no answer.
+    example:
+      turns:
+        - Write a text to my landlord about the leaking sink.
+        - Mention that it started Tuesday, and don't apologize for bothering them.
+        - Ok, show me the text.

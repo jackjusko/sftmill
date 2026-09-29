@@ -1,0 +1,594 @@
+# Small copy of code_agent for a test run. Two questions per category
+# and one harness (alice). Three trace categories stay at 2. Thirteen
+# trajectory categories are 2 rows each. 32 rows in all.
+
+name: code_agent_test
+categories:
+  - id: bug_needle
+    count: 2
+    kind: trace
+    match: contains
+    template: |
+      JSON keys: question, answer.
+      answer is one token: an exception class or a broken identifier.
+      question is a short snippet plus the call or input that makes the fault determined.
+      Do not name the fault in the question. No tools, no files.
+    example:
+      question: |
+        Trace this Python snippet. Do not call any tool.
+        def get_user(config):
+            return config["user_id"]
+        get_user({})
+      answer: KeyError
+
+  - id: harness_recover
+    count: 2
+    kind: trajectory
+    match: exact
+    max_steps: 12
+    toolset: custom
+    harnesses: [alice]
+    template: |
+      JSON keys: question, answer, tools.
+      tools is an OpenAI function schema list: one useful tool and one decoy.
+      Do not use python, list_dir, read_file, write_file, edit_file, search, or bash.
+      question asks for one value and does not describe the calls.
+      answer is that value alone, one line, under 40 characters.
+      Do not write Trajectory, Result, or a call script in answer. No files.
+    example:
+      question: What is the calibration offset for sensor SN-0087 on channel 3?
+      answer: "-0.0023"
+      tools:
+        - type: function
+          function:
+            name: read_calibration
+            description: Return the current offset for a sensor channel.
+            parameters:
+              type: object
+              properties:
+                sensor_id: {type: string}
+                channel: {type: integer}
+              required: [sensor_id, channel]
+        - type: function
+          function:
+            name: purge_archive
+            description: Delete archived readings (decoy).
+            parameters:
+              type: object
+              properties:
+                archive_id: {type: string}
+              required: [archive_id]
+
+  - id: search_edit
+    count: 2
+    kind: trajectory
+    match: exact
+    max_steps: 16
+    toolset: workspace
+    require_observation: PASSED
+    verify: python3 check.py
+    harnesses: [alice]
+    template: |
+      JSON keys: question, answer, files, expect_files.
+      files is an object of path to full file text, at least three files.
+      Put file bodies only in files. question must not contain those bodies.
+      question names the symptom and says to run python3 check.py.
+      The check prints PASSED only after the edit. One file holds the bug.
+      Include one assertion the correct edit does not change, so editing the
+      check alone still fails. expect_files is the edited path and its full
+      corrected text. answer is the single token ok.
+    example:
+      question: The data pipeline fails. Run python3 check.py after you fix it.
+      answer: ok
+      files:
+        app.py: |
+          VALUE = 1
+          LABEL = "data"
+        lib.py: |
+          def load():
+              return VALUE
+        check.py: |
+          import app
+          assert app.VALUE == 2
+          assert app.LABEL == "data"
+          print("PASSED")
+      expect_files:
+        app.py: |
+          VALUE = 2
+          LABEL = "data"
+
+  - id: regression
+    count: 2
+    kind: trajectory
+    match: exact
+    max_steps: 48
+    toolset: workspace
+    require_observation: PASSED
+    verify: python3 check.py
+    harnesses: [alice]
+    template: |
+      JSON keys: question, answer, files, expect_files.
+      files is an object of path to full file text, same shape as search_edit.
+      question must not contain those bodies.
+      The program's first natural fix passes one check and fails another.
+      python3 check.py prints PASSED only after the second fix.
+      Include one assertion that already passes on the seed and that the gold
+      edit does not change. expect_files is the repaired source.
+      answer is the single token ok.
+    example:
+      question: Fix the converter so both checks pass. Run python3 check.py.
+      answer: ok
+      files:
+        src/convert.py: |
+          def c_to_f(c):
+              return c * 5 / 9 + 32
+          def k_to_c(k):
+              return k - 273
+        check.py: |
+          from src.convert import c_to_f, k_to_c
+          assert c_to_f(0) == 32
+          assert c_to_f(100) == 212
+          assert abs(k_to_c(373.15) - 100) < 1e-6
+          print("PASSED")
+      expect_files:
+        src/convert.py: |
+          def c_to_f(c):
+              return c * 9 / 5 + 32
+          def k_to_c(k):
+              return k - 273.15
+
+  - id: api_rename
+    count: 2
+    kind: trajectory
+    match: exact
+    max_steps: 32
+    toolset: workspace
+    harnesses: [alice]
+    template: |
+      JSON keys: question, answer, files, expect_files.
+      files holds the definition and at least two callers, in separate paths.
+      question names the new identifier and must not contain the file bodies.
+      expect_files is every edited path.
+      A definition-only edit is wrong. answer is the new name, one token.
+    example:
+      question: Rename fetch_data to retrieve_records everywhere it appears.
+      answer: retrieve_records
+      files:
+        storage.py: |
+          def fetch_data(table):
+              return table
+        pipeline.py: |
+          from storage import fetch_data
+          rows = fetch_data("orders")
+        sync.py: |
+          from storage import fetch_data
+          users = fetch_data("users")
+      expect_files:
+        storage.py: |
+          def retrieve_records(table):
+              return table
+        pipeline.py: |
+          from storage import retrieve_records
+          rows = retrieve_records("orders")
+        sync.py: |
+          from storage import retrieve_records
+          users = retrieve_records("users")
+
+  - id: python_repair
+    count: 2
+    kind: trajectory
+    match: exact
+    max_steps: 32
+    toolset: workspace
+    verify: python3 calc.py
+    verify_stdout: exact
+    harnesses: [alice]
+    template: |
+      JSON keys: question, answer, files, expect_files.
+      files is calc.py with several independent bugs. Each bug is a broken
+      standard formula: a wrong operator, a missing factor, or swapped
+      arguments. Do not retune a rate, fee, or constant unless the question
+      states the correct value. Do not mark the bugs in comments.
+      question must not contain the source or say to fix only one.
+      The solver runs python3 calc.py, patches one fault, and re-runs.
+      The program prints one final line, and that line is correct only after
+      every bug is fixed. expect_files is the repaired source.
+      answer is that exact printed line.
+    example:
+      question: Fix the independent faults in calc.py. Re-run python3 calc.py after each fix and report the printed line.
+      answer: "212.0 100.00"
+      files:
+        calc.py: |
+          def c_to_f(c):
+              return c + 32
+          def k_to_c(k):
+              return k - 273
+          print(f"{c_to_f(100):.1f} {k_to_c(373.15):.2f}")
+      expect_files:
+        calc.py: |
+          def c_to_f(c):
+              return c * 9 / 5 + 32
+          def k_to_c(k):
+              return k - 273.15
+          print(f"{c_to_f(100):.1f} {k_to_c(373.15):.2f}")
+
+  - id: long_feature
+    count: 2
+    kind: trajectory
+    match: exact
+    max_steps: 48
+    toolset: workspace
+    require_observation: PASSED
+    verify: python3 check.py
+    harnesses: [alice]
+    template: |
+      JSON keys: question, answer, files, expect_files, correction.
+      files is a multi-file tree with a failing python3 check.py at the
+      workspace root. question must not contain the file bodies or the
+      correction text. The command in the question must match that path.
+      correction is one later sentence: set the setting to the gold value,
+      not a wrong value. The gold value is the new number in expect_files
+      and the number the check accepts. The wrong value is neither the seed
+      nor the gold, and using it fails the check. Do not tell the solver to
+      apply the wrong value. Do not mention the number already in the seed.
+      When the corrected setting is a rate or coefficient, the check asserts
+      an end result and does not contain the gold number as a literal.
+      The check includes one assertion the gold edit does not change.
+      expect_files is the tree after both the original change and the correction.
+      The check prints PASSED only then. answer is the single token ok.
+    example:
+      question: Fix the config defaults so validation passes, then run python3 check.py.
+      answer: ok
+      correction: Set the default timeout to 30, not 10.
+      files:
+        src/config.py: |
+          def load():
+              return {"timeout": 0, "retries": 3}
+        check.py: |
+          from src.config import load
+          cfg = load()
+          assert cfg["retries"] == 3
+          assert cfg["timeout"] == 30
+          print("PASSED")
+      expect_files:
+        src/config.py: |
+          def load():
+              return {"timeout": 30, "retries": 3}
+
+  - id: design_owner
+    count: 2
+    kind: trace
+    match: exact
+    template: |
+      JSON keys: question, answer.
+      question describes three named components and one new responsibility.
+      Name the candidates. Do not say which component should own the work.
+      Solving it takes a data-flow argument: what breaks if each other
+      component owns it. answer is that owning component, one token, and
+      that token appears in the question. No tools, no files.
+    example:
+      question: |
+        Checkout calls Pricing.quote, then Orders.save. Tax is computed inside
+        Orders today. A new rule says tax depends only on the quote and the
+        ship-to address, and Orders must stay free of tax rules.
+        Which component should own tax?
+      answer: Pricing
+
+  - id: review_finding
+    count: 2
+    kind: trace
+    match: exact
+    template: |
+      JSON keys: question, answer.
+      question includes two short modules. One violates an invariant or sits
+      in the wrong layer. Do not name the fault. Do not write "the bug is"
+      or "the fault is" next to the answer. answer is the broken function,
+      one token that appears in the snippet. No tools, no files.
+    example:
+      question: |
+        Tax must be ten percent of the amount. Review these two functions.
+        def quote(sku):
+            return len(sku)
+        def save(order):
+            order["tax"] = order["amount"] * 2
+            return order
+      answer: save
+
+  - id: boundary_repair
+    count: 2
+    kind: trajectory
+    match: exact
+    max_steps: 32
+    toolset: workspace
+    require_observation: PASSED
+    verify: python3 check.py
+    harnesses: [alice]
+    template: |
+      JSON keys: question, answer, files, expect_files.
+      files has at least three paths. A rule lives in the wrong layer.
+      question states the intended boundary and the symptom, not the edit,
+      and says to run python3 check.py. File bodies stay out of question.
+      check.py asserts the behavior, asserts the wrong layer no longer
+      contains the rule, and asserts one neighbor the gold edit does not
+      change. It prints PASSED only then. answer is the single token ok.
+    example:
+      question: |
+        Tax must be computed in the domain, not the handler. Orders are
+        totaling wrong. Run python3 check.py after you move the rule.
+      answer: ok
+      files:
+        handler.py: |
+          def place(items):
+              return sum(item["price"] for item in items)
+        domain.py: |
+          def total(items):
+              return 0
+          def label():
+              return "orders"
+        check.py: |
+          import inspect
+          import handler
+          import domain
+          assert domain.label() == "orders"
+          assert domain.total([{"price": 2}, {"price": 3}]) == 5
+          assert "price" not in inspect.getsource(handler.place)
+          print("PASSED")
+      expect_files:
+        handler.py: |
+          import domain
+          def place(items):
+              return domain.total(items)
+        domain.py: |
+          def total(items):
+              return sum(item["price"] for item in items)
+          def label():
+              return "orders"
+
+  - id: contract_feature
+    count: 2
+    kind: trajectory
+    match: exact
+    max_steps: 48
+    toolset: workspace
+    require_observation: PASSED
+    verify: python3 check.py
+    harnesses: [alice]
+    template: |
+      JSON keys: question, answer, files, expect_files.
+      files is a skeleton of two modules plus check.py. question is the
+      design contract: who may call whom, what a facade returns, or an
+      invariant across the seam. It must not contain file bodies. It says
+      to run python3 check.py. The check fails until the seam exists, and
+      one behavior already holds on the seed. It prints PASSED only when
+      the contract holds. answer is the single token ok.
+    example:
+      question: |
+        The facade must render a loaded order as "<sku> x<qty>". The store
+        remains the only loader. Run python3 check.py.
+      answer: ok
+      files:
+        facade.py: |
+          def render(order):
+              return order["sku"]
+        store.py: |
+          def load(sku):
+              return {"sku": sku, "qty": 1}
+        check.py: |
+          import facade
+          from store import load
+          assert load("zz")["qty"] == 1
+          assert facade.render(load("ab")) == "ab x1"
+          print("PASSED")
+      expect_files:
+        facade.py: |
+          def render(order):
+              return f"{order['sku']} x{order['qty']}"
+
+  - id: incident_fix
+    count: 2
+    kind: trajectory
+    match: exact
+    max_steps: 48
+    toolset: workspace
+    require_observation: PASSED
+    verify: python3 check.py
+    harnesses: [alice]
+    template: |
+      JSON keys: question, answer, files, expect_files.
+      files has at least three paths. question is a bug report: a log line
+      or a wrong user-visible result. Do not name the file that holds the
+      bug. Tell the solver to investigate, then run python3 check.py.
+      File bodies stay out of question. The check prints PASSED only after
+      the fix, and one assertion already passes on the seed.
+      answer is the single token ok.
+    example:
+      question: |
+        Orders over $10 are charged tax twice. Log: total=24 expected 22.
+        Investigate, then run python3 check.py.
+      answer: ok
+      files:
+        tax.py: |
+          def apply(amount):
+              return 2 if amount > 10 else 1
+        checkout.py: |
+          from tax import apply
+          def charge(amount):
+              tax = apply(amount)
+              if amount > 10:
+                  tax = tax + apply(amount)
+              return amount + tax
+        check.py: |
+          from checkout import charge
+          assert charge(5) == 6
+          assert charge(20) == 22
+          print("PASSED")
+      expect_files:
+        checkout.py: |
+          from tax import apply
+          def charge(amount):
+              return amount + apply(amount)
+
+  - id: test_first
+    count: 2
+    kind: trajectory
+    match: exact
+    max_steps: 48
+    toolset: workspace
+    require_observation: PASSED
+    verify: python3 check.py
+    harnesses: [alice]
+    template: |
+      JSON keys: question, answer, files, expect_files.
+      files contains the bug and check.py, and does not contain test_new.py.
+      question tells the solver to add test_new.py with a test_contract
+      function, fix the bug, and run python3 check.py. Do not put file
+      bodies in the question. check.py imports test_new, calls
+      test_contract, asserts the real behavior, and prints PASSED.
+      Leave check.py out of expect_files. expect_files is the fixed
+      program and test_new.py. answer is the single token ok.
+    example:
+      question: |
+        Totals are one too high. Add test_new.py with test_contract, fix
+        the program, and run python3 check.py.
+      answer: ok
+      files:
+        calc.py: |
+          def total(xs):
+              return sum(xs) + 1
+        check.py: |
+          import calc
+          import test_new
+          assert calc.total([1, 2]) == 3
+          test_new.test_contract()
+          print("PASSED")
+      expect_files:
+        calc.py: |
+          def total(xs):
+              return sum(xs)
+        test_new.py: |
+          import calc
+          def test_contract():
+              assert calc.total([1, 2]) == 3
+
+  - id: compat_change
+    count: 2
+    kind: trajectory
+    match: exact
+    max_steps: 48
+    toolset: workspace
+    require_observation: PASSED
+    verify: python3 check.py
+    harnesses: [alice]
+    template: |
+      JSON keys: question, answer, files, expect_files.
+      Two callers use two shapes of the same API. question states the rule
+      and the result or formula for each call style, says both must keep
+      working, and tells the solver to run python3 check.py. "Both must
+      keep working" is not itself the rule. Do not put file bodies in the
+      question. The first natural edit satisfies
+      one caller and breaks the other. This is not two asserts on one
+      function. The check prints PASSED only when both call styles
+      succeed, and one assertion already passes on the seed.
+      answer is the single token ok.
+    example:
+      question: |
+        A legacy bill is the length of the sku. A modern bill is that length
+        times the quantity. Both call styles must keep working. Run python3 check.py.
+      answer: ok
+      files:
+        pricing.py: |
+          def quote(sku):
+              return len(sku)
+        legacy.py: |
+          from pricing import quote
+          def bill(sku):
+              return quote(sku)
+        modern.py: |
+          from pricing import quote
+          def bill(sku, qty):
+              return quote(sku, qty)
+        check.py: |
+          import legacy
+          import modern
+          assert legacy.bill("pen") == 3
+          assert modern.bill("pen", 2) == 6
+          print("PASSED")
+      expect_files:
+        pricing.py: |
+          def quote(sku, qty=1):
+              return len(sku) * qty
+
+  - id: cli_find
+    count: 2
+    kind: trajectory
+    match: exact
+    max_steps: 16
+    toolset: workspace
+    verify_on: seed
+    verify_stdout: exact
+    harnesses: [alice]
+    template: |
+      JSON keys: question, answer, files, verify.
+      files is a small tree of logs or text. Do not include expect_files.
+      question asks for one value hidden in the tree. Do not include the
+      answer or the verify command in the question. Do not put file bodies
+      in the question. Add a decoy file so the value is not the only number
+      in the tree. verify is one command whose stdout is exactly answer and
+      whose exit code is 0. Do not put answer inside the command. The command
+      must name a seeded path. grep -c exits 1 when the count is 0, so use a
+      command that exits 0. Use grep, awk, sed, find, wc, sort, cut, or
+      python3. No &&, no semicolon, no .., and no absolute paths.
+      answer is that one line.
+    example:
+      question: How many ERROR lines are in logs/app.log?
+      answer: "3"
+      verify: grep -c ERROR logs/app.log
+      files:
+        logs/app.log: |
+          INFO start
+          ERROR disk
+          INFO ok
+          ERROR cpu
+          ERROR net
+        logs/other.log: |
+          ERROR noise
+
+  - id: cli_repair
+    count: 2
+    kind: trajectory
+    match: exact
+    max_steps: 32
+    toolset: workspace
+    require_observation: PASSED
+    verify: python3 check.py
+    harnesses: [alice]
+    template: |
+      JSON keys: question, answer, files, expect_files.
+      files contains a broken shell script and check.py. question states
+      what the script must print and says to run python3 check.py. Do not
+      put file bodies in the question. The fault is a wrong operator, a
+      missing argument, or a bad pipe, not a silent constant change.
+      check.py runs bash on the script and prints PASSED only when that
+      behavior holds. Leave check.py out of expect_files. expect_files is
+      the fixed script. answer is the single token ok.
+    example:
+      question: |
+        The report must print how many WARN lines are in app.log.
+        Run python3 check.py.
+      answer: ok
+      files:
+        app.log: |
+          INFO up
+          WARN disk
+          INFO ok
+          WARN cpu
+        report.sh: |
+          grep -c ERROR app.log
+        check.py: |
+          import subprocess
+          out = subprocess.check_output(["bash", "report.sh"], text=True)
+          assert out.strip() == "2"
+          print("PASSED")
+      expect_files:
+        report.sh: |
+          grep -c WARN app.log
