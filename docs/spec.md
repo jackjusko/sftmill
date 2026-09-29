@@ -8,6 +8,11 @@ Worked examples (start with the small one):
 - [`configs/curriculum/code_agent.yaml`](../configs/curriculum/code_agent.yaml)
 - [`configs/curriculum/code_instruct.yaml`](../configs/curriculum/code_instruct.yaml)
 
+Related Guides:
+- [Multi-Turn Hybrid-Reasoning Guide](multi_turn_hybrid_reasoning.md) — Multi-turn dialogues with chain-of-thought (`reasoning_content`)
+- [Agent Trajectories & Tool Use Guide](agent_trajectories.md) — Sandboxed workspace execution, checks, and harness envelopes
+- [Architecture & System Design](architecture.md) — Two-stage pipeline dataflow, sharding, and concurrency model
+
 This document lists only fields that `load_curriculum` accepts. There is no Distill-style run, model, or hardware YAML in sftmill.
 
 ## File shape
