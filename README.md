@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <strong>An industrial-grade, off-policy synthetic data distillation engine for LLMs.</strong><br>
+  <strong>An easy to use off-policy synthetic data distillation engine for LLMs.</strong><br>
   Turn YAML curriculum blueprints into gold-standard task benchmarks, and mill verifiable reasoning traces and multi-turn agent trajectories from any model with an OpenAI-compatible endpoint.
 </p>
 
