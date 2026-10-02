@@ -5,6 +5,10 @@
 # 5 SWE categories, and 20 in each of cli_find and cli_repair.
 # Harness expansion makes 1520 trajectory rows, 1580 in all.
 
+#This is half of the cirriculum (along with code_instruct) that I used to fine tune AliceAI 80B-A3B.
+#This and code_instruct are provided as a reference implementation of the YAML formatting
+
+
 name: code_agent
 categories:
   - id: bug_needle
