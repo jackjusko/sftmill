@@ -4,11 +4,15 @@ A curriculum YAML drives `sftmill tasks`. It tells a synthesis teacher what kind
 
 Worked examples (start with the small one):
 
-- [`configs/curriculum/code_agent_test.yaml`](../configs/curriculum/code_agent_test.yaml)
-- [`configs/curriculum/code_agent.yaml`](../configs/curriculum/code_agent.yaml)
-- [`configs/curriculum/code_instruct.yaml`](../configs/curriculum/code_instruct.yaml)
+- [`configs/curriculum/code_agent_test.yaml`](../configs/curriculum/code_agent_test.yaml) — smoke agent mix (~32 rows)
+- [`configs/curriculum/code_agent.yaml`](../configs/curriculum/code_agent.yaml) — tool-use trajectories and graded traces
+- [`configs/curriculum/code_instruct.yaml`](../configs/curriculum/code_instruct.yaml) — coding-session chat (22×80)
+- [`configs/curriculum/general_instruct.yaml`](../configs/curriculum/general_instruct.yaml) — ordinary conversation + identity (80 categories / 4000 tasks)
+
+To invent a new YAML, see [Writing a curriculum](writing_curricula.md). This file is only the field list.
 
 Related Guides:
+- [Writing a curriculum](writing_curricula.md) — example files, LLM authoring prompt, many-category grain
 - [Multi-Turn Hybrid-Reasoning Guide](multi_turn_hybrid_reasoning.md) — Multi-turn dialogues with chain-of-thought (`reasoning_content`)
 - [Agent Trajectories & Tool Use Guide](agent_trajectories.md) — Sandboxed workspace execution, checks, and harness envelopes
 - [Architecture & System Design](architecture.md) — Two-stage pipeline dataflow, sharding, and concurrency model
@@ -59,7 +63,8 @@ For `match: open`, optional `user_turns` must be **2** or **3**. Synthesis retur
 | `verify_stdout` | Set to `exact` when stdout must equal the gold `answer`. |
 | `verify_on` | Only legal value: `seed` — grade against original files (lookup tasks); no `expect_files`. |
 | `require_observation` | Substring that must appear in a tool observation (example specs often use `PASSED`). |
-| `user_turns` | `2` or `3` for open multi-turn categories. |
+| `user_turns` | `2` or `3` for open multi-turn categories. Omit for single-turn open. |
+| `student_system` | `default` (inject [`configs/identity/alice.txt`](../configs/identity/alice.txt)), `custom` (synthesizer must emit `system`), or `off`. The harness id `alice` is a tool-call envelope, not this prompt. |
 
 ## Synthesis item shape (what the teacher returns)
 
@@ -67,6 +72,7 @@ Depends on the category:
 
 - **All graded traces/trajectories:** `question`, `answer` (except `match: open`).
 - **Open multi-turn:** `turns` — list of user strings; no gold `answer`.
+- **Open with `student_system: custom`:** also `system` — a short role or format instruction, not the default identity.
 - **`toolset: workspace`:** `files` (path → text) and usually `expect_files` (gold tree after edits).
 - **`verify_on: seed`:** `verify` — command whose stdout is the answer; no `expect_files`.
 - **`toolset: custom`:** `tools` — OpenAI-style function list (one useful tool + decoy is typical).
@@ -93,7 +99,41 @@ categories:
       answer: KeyError
 ```
 
-Open instruct (no tools):
+Open instruct (no tools), single-turn with default identity:
+
+```yaml
+categories:
+  - id: identity
+    count: 80
+    kind: trace
+    match: open
+    student_system: default
+    template: |
+      JSON key: question.
+      question asks who the assistant is.
+      Use a new domain and register. Do not reuse the example topic.
+    example:
+      question: Who are you?
+```
+
+Open instruct with a custom system (synthesizer emits `system`):
+
+```yaml
+categories:
+  - id: system_follow
+    count: 70
+    kind: trace
+    match: open
+    student_system: custom
+    template: |
+      JSON keys: question, system.
+      system is a short role or format instruction, not the Alice identity.
+    example:
+      question: Pack a bag for a weekend hike.
+      system: Answer in exactly three bullet points. No intro.
+```
+
+Open instruct, multi-turn (`user_turns` required only here):
 
 ```yaml
 categories:

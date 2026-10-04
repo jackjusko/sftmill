@@ -2,6 +2,8 @@
 
 We welcome contributions to `sftmill`! Whether you're adding support for new curriculum templates, optimizing teacher streaming, extending sandbox tools, or improving documentation, here is how to get started.
 
+To add a curriculum YAML, copy a shipped example and follow [Writing a curriculum](docs/writing_curricula.md). Use many narrow categories; a handful of fat bins does not synthesize a wide mix.
+
 ---
 
 ## 🛠️ Development Setup
@@ -74,7 +76,7 @@ src/sftmill/
 1. **Tests Pass**: Ensure all existing tests pass (`pytest`) and add test coverage for new functionality under `tests/`.
 2. **Deterministic Sandboxing**: When adding tools or sandbox modifications, verify paths cannot escape the temporary workspace root.
 3. **Clean Dependencies**: Keep runtime dependencies minimal. `sftmill` core only depends on `pyyaml`.
-4. **Documentation**: Update relevant docs under `docs/` and `README.md` if your change modifies CLI arguments or YAML curriculum schemas.
+4. **Documentation**: Update relevant docs under `docs/` and `README.md` if your change modifies CLI arguments or YAML curriculum schemas. New example curricula belong in `configs/curriculum/` and should be listed in [docs/writing_curricula.md](docs/writing_curricula.md).
 
 ---
 

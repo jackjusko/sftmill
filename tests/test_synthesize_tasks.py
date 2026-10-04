@@ -1,4 +1,5 @@
 import json
+import threading
 
 import pytest
 
@@ -421,6 +422,52 @@ categories:
 
     rows, shortfalls = synthesize_tasks(curriculum, Teacher(), tmp_path / "tasks.jsonl", batch_size=1, jobs=3)
     assert not shortfalls
+    assert {row["id"] for row in rows} == {"one-0001", "two-0001", "three-0001"}
+
+
+def test_synthesize_tasks_fans_out_across_teacher_list(tmp_path):
+    curriculum = tmp_path / "curriculum.yaml"
+    curriculum.write_text(
+        """
+name: parallel
+categories:
+  - id: one
+    count: 1
+    kind: trace
+    match: exact
+    template: a
+  - id: two
+    count: 1
+    kind: trace
+    match: exact
+    template: b
+  - id: three
+    count: 1
+    kind: trace
+    match: exact
+    template: c
+""",
+    )
+    used: list[str] = []
+    lock = threading.Lock()
+
+    class NamedTeacher:
+        def __init__(self, name):
+            self.name = name
+
+        def complete(self, messages, tools=None, **kwargs):
+            with lock:
+                used.append(self.name)
+            category = messages[-1]["content"].split("Category: ", 1)[1].split()[0]
+            return {"content": json.dumps({"question": f"q-{category}-{self.name}", "answer": "1"})}
+
+    rows, shortfalls = synthesize_tasks(
+        curriculum,
+        [NamedTeacher("a"), NamedTeacher("b")],
+        tmp_path / "tasks.jsonl",
+    )
+    assert not shortfalls
+    assert set(used) == {"a", "b"}
     assert {row["id"] for row in rows} == {"one-0001", "two-0001", "three-0001"}
 
 

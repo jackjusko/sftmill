@@ -7,7 +7,9 @@ import logging
 import sys
 import urllib.error
 import urllib.request
-from typing import BinaryIO, TextIO
+from contextlib import contextmanager
+from queue import Queue
+from typing import BinaryIO, Iterator, Sequence, TextIO
 
 logger = logging.getLogger("sftmill.teacher")
 
@@ -312,3 +314,34 @@ class OpenAICompatibleTeacher:
             detail = exc.read().decode("utf-8", errors="replace")[:500]
             logger.error("teacher HTTP %s: %s", exc.code, detail)
             raise
+
+
+class TeacherPool:
+    """Fixed set of teacher slots. ``borrow()`` blocks until a slot is free."""
+
+    def __init__(self, teachers: Sequence) -> None:
+        slots = list(teachers)
+        if not slots:
+            raise ValueError("TeacherPool needs at least one teacher")
+        self._idle: Queue = Queue()
+        for teacher in slots:
+            self._idle.put(teacher)
+        self.size = len(slots)
+
+    @contextmanager
+    def borrow(self) -> Iterator:
+        teacher = self._idle.get()
+        try:
+            yield teacher
+        finally:
+            self._idle.put(teacher)
+
+
+def teacher_pool(teacher, jobs: int | None = None) -> TeacherPool:
+    """Wrap a teacher, a list of teachers, or an existing pool."""
+    if isinstance(teacher, TeacherPool):
+        return teacher
+    if isinstance(teacher, (list, tuple)):
+        return TeacherPool(teacher)
+    n = 1 if jobs is None else max(1, int(jobs))
+    return TeacherPool([teacher] * n)

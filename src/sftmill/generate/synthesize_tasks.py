@@ -15,9 +15,11 @@ import logging
 import yaml
 
 from sftmill.harness import materialize_harness
+from sftmill.identity import default_system
 from sftmill.progress import ProgressReporter
 from sftmill.schema import PYTHON_TOOL, WORKSPACE_TOOLS, validate_example
 from sftmill.generate.trajectories import verify_passes
+from sftmill.teachers.openai_compat import teacher_pool
 from sftmill.tools.workspace import Workspace
 
 logger = logging.getLogger("sftmill.generate.tasks")
@@ -61,6 +63,12 @@ def load_curriculum(path: str | Path) -> dict:
             turns = category["user_turns"]
             if isinstance(turns, bool) or not isinstance(turns, int) or turns not in {2, 3}:
                 raise ValueError(f"category {category['id']} user_turns must be 2 or 3")
+        if "student_system" in category:
+            mode = category["student_system"]
+            if mode not in {True, False, "default", "custom", "none", "off"}:
+                raise ValueError(
+                    f"category {category['id']} student_system must be default, custom, or off"
+                )
     return data
 
 
@@ -125,6 +133,9 @@ def category_response_schema(category: dict) -> dict:
         else:
             properties = {"question": {"type": "string"}}
             required = ["question"]
+        if category.get("student_system") == "custom":
+            properties["system"] = {"type": "string"}
+            required.append("system")
         return {
             "type": "json_schema",
             "json_schema": {
@@ -256,23 +267,19 @@ def _normalize_item(raw: object) -> dict | None:
         item = {"question": question, "turns": turns}
         if answer is not None and str(answer).strip():
             item["answer"] = str(answer).strip()
-        for key in ("files", "expect_files"):
-            files = _coerce_files(raw.get(key))
-            if files:
-                item[key] = files
-        for key in ("tools", "require_observation", "correction", "verify"):
-            if raw.get(key):
-                item[key] = raw[key]
-        return item
+        return _attach_item_fields(raw, item)
     if question is None or answer is None:
         if question is None or not str(question).strip():
             return None
-        return {"question": str(question).strip()}
+        return _attach_item_fields(raw, {"question": str(question).strip()})
     question = str(question).strip()
     answer = str(answer).strip()
     if not question or not answer:
         return None
-    item = {"question": question, "answer": answer}
+    return _attach_item_fields(raw, {"question": question, "answer": answer})
+
+
+def _attach_item_fields(raw: dict, item: dict) -> dict:
     for key in ("files", "expect_files"):
         files = _coerce_files(raw.get(key))
         if files:
@@ -280,6 +287,9 @@ def _normalize_item(raw: object) -> dict | None:
     for key in ("tools", "require_observation", "correction", "verify"):
         if raw.get(key):
             item[key] = raw[key]
+    system = raw.get("system")
+    if system is not None and str(system).strip():
+        item["system"] = str(system).strip()
     return item
 
 
@@ -320,11 +330,12 @@ def _reject_open(category: dict, item: dict) -> str | None:
         turns = item.get("turns") or []
         if len(turns) != expected:
             return f"turns must be {expected} user messages"
-        return None
-    if item.get("turns"):
+    elif item.get("turns"):
         return "single-turn tasks use question, not turns"
-    if not str(item.get("question") or "").strip():
+    elif not str(item.get("question") or "").strip():
         return "missing question"
+    if category.get("student_system") == "custom" and not str(item.get("system") or "").strip():
+        return "custom student_system needs a system string"
     return None
 
 
@@ -719,6 +730,18 @@ def _user_prompt(category: dict, question: str) -> str:
     return text
 
 
+def _student_system_text(category: dict, item: dict) -> str | None:
+    mode = category.get("student_system")
+    if mode in {False, "none", "off"}:
+        return None
+    if mode == "custom":
+        text = item.get("system")
+        return str(text).strip() if text and str(text).strip() else None
+    if mode in {True, "default"}:
+        return default_system()
+    return None
+
+
 def _task_from_item(category: dict, item: dict, seq: int, harness_id: str | None = None) -> dict:
     kind = category["kind"]
     base_id = f"{category['id']}-{seq:04d}"
@@ -726,6 +749,9 @@ def _task_from_item(category: dict, item: dict, seq: int, harness_id: str | None
         messages = [{"role": "user", "content": turn} for turn in item["turns"]]
     else:
         messages = [{"role": "user", "content": _user_prompt(category, item["question"])}]
+    sys_text = _student_system_text(category, item)
+    if sys_text:
+        messages = [{"role": "system", "content": sys_text}, *messages]
     task = {
         "id": base_id,
         "group_id": base_id,
@@ -733,6 +759,9 @@ def _task_from_item(category: dict, item: dict, seq: int, harness_id: str | None
         "match": category["match"],
         "messages": messages,
     }
+    if sys_text:
+        task["system"] = sys_text
+        task["student_system"] = "custom" if category.get("student_system") == "custom" else "default"
     if item.get("answer"):
         task["answer"] = item["answer"]
     if item.get("turns"):
@@ -875,7 +904,8 @@ def synthesize_tasks(
 ) -> tuple[list[dict], list[str]]:
     curriculum = load_curriculum(curriculum_path)
     categories = curriculum["categories"]
-    workers = max(1, int(jobs))
+    slots = teacher_pool(teacher, jobs)
+    workers = slots.size
     base_target, row_target = _expected_row_count(categories)
     if progress is not None:
         progress.set(
@@ -912,13 +942,14 @@ def synthesize_tasks(
 
     def run(category: dict) -> list[dict]:
         logger.info("synthesizing category=%s count=%s kind=%s", category["id"], category["count"], category["kind"])
-        rows, err = synthesize_category_tasks(
-            category,
-            teacher,
-            batch_size=batch_size,
-            seen_questions=seen,
-            progress=progress,
-        )
+        with slots.borrow() as slot:
+            rows, err = synthesize_category_tasks(
+                category,
+                slot,
+                batch_size=batch_size,
+                seen_questions=seen,
+                progress=progress,
+            )
         append_rows(rows)
         if err:
             with write_lock:

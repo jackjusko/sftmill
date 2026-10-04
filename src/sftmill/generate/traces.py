@@ -6,9 +6,32 @@ import logging
 
 from sftmill.generate.filters import accept
 from sftmill.generate.interpret import extract_graded_answer, interpret_teacher
+from sftmill.identity import default_system, teacher_system
 from sftmill.schema import validate_example
 
 logger = logging.getLogger("sftmill.generate.traces")
+
+
+def _student_system(task: dict) -> str | None:
+    mode = task.get("student_system")
+    if mode in {False, "none", "off"}:
+        return None
+    if mode in {True, "default"}:
+        return default_system()
+    for message in task.get("messages") or []:
+        if message.get("role") == "system" and str(message.get("content") or "").strip():
+            return str(message["content"]).strip()
+    text = task.get("system")
+    if text and str(text).strip():
+        return str(text).strip()
+    if task.get("match") == "open":
+        return default_system()
+    return None
+
+
+def _teacher_messages(saved: list[dict], student_sys: str | None) -> list[dict]:
+    rest = [message for message in saved if message.get("role") != "system"]
+    return [{"role": "system", "content": teacher_system(student_sys)}, *rest]
 
 
 def _user_turns(task: dict) -> list[str]:
@@ -40,10 +63,13 @@ def _open_assistant(raw) -> dict | None:
 
 def _generate_open_trace(task: dict, teacher) -> dict | None:
     task_id = task.get("id", "?")
+    student_sys = _student_system(task)
     messages: list[dict] = []
+    if student_sys:
+        messages.append({"role": "system", "content": student_sys})
     for turn in _user_turns(task):
         messages.append({"role": "user", "content": turn})
-        raw = teacher.complete(messages)
+        raw = teacher.complete(_teacher_messages(messages, student_sys))
         assistant = _open_assistant(raw)
         if assistant is None:
             logger.warning("trace rejected task=%s teacher hit max_tokens", task_id)

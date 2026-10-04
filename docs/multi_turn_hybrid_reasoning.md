@@ -137,6 +137,19 @@ sftmill tasks \
   --jobs 4
 ```
 
+Split across local servers (same `--model`):
+
+```bash
+sftmill tasks \
+  --curriculum configs/curriculum/general_instruct.yaml \
+  --out data/tasks_general.jsonl \
+  --model qwen3.8-27b \
+  --base-url http://127.0.0.1:8080/v1 --jobs 4 \
+  --base-url http://127.0.0.1:8081/v1 --jobs 4
+```
+
+`code_instruct.yaml` is coding-session chat (22 categories). `general_instruct.yaml` is a wider ordinary-conversation mix (80 categories, default identity except four `custom` system bins). Open traces inject [`configs/identity/alice.txt`](../configs/identity/alice.txt) at generate unless `student_system` is `custom` or `off`. See [Writing a curriculum](writing_curricula.md).
+
 This writes rows to `data/tasks_instruct.jsonl`:
 ```json
 {
@@ -159,13 +172,12 @@ Run `sftmill generate` pointing to a reasoning-capable teacher (such as DeepSeek
 sftmill generate \
   --tasks data/tasks_instruct.jsonl \
   --out data/sft_dataset \
-  --base-url http://localhost:8000/v1 \
   --model deepseek-ai/DeepSeek-R1-Distill-Qwen-32B \
-  --api-key none \
+  --base-url http://localhost:8000/v1 --jobs 4 \
+  --base-url http://localhost:8001/v1 --jobs 2 \
   --temperature 0.6 \
   --max-tokens 16384 \
   --kind trace \
-  --jobs 6 \
   --shard-size 1000
 ```
 

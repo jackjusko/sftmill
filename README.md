@@ -27,6 +27,7 @@
 - [Multi-Turn Hybrid-Reasoning (`user <> assistant`)](#-multi-turn-hybrid-reasoning-user--assistant)
 - [Verifiable Agent Trajectories & Sandboxed Tools](#-verifiable-agent-trajectories--sandboxed-tools)
 - [Declarative Curriculum Blueprints](#-declarative-curriculum-blueprints)
+- [Writing a curriculum](docs/writing_curricula.md)
 - [Multi-Harness Envelopes & Leak-Free Splitting](#-multi-harness-envelopes--leak-free-splitting)
 - [CLI Reference](#-cli-reference)
 - [Python API Reference](#-python-api-reference)
@@ -144,6 +145,17 @@ sftmill tasks \
   --jobs 4
 ```
 
+Repeat `--base-url` (same `--model`) to split work across local servers. Pair `--jobs` with each URL, or pass one `--jobs` for every URL (default 3 per URL):
+
+```bash
+sftmill tasks \
+  --curriculum configs/curriculum/code_agent.yaml \
+  --out tasks.jsonl \
+  --model qwen3.8-27b \
+  --base-url http://127.0.0.1:8080/v1 --jobs 4 \
+  --base-url http://127.0.0.1:8081/v1 --jobs 4
+```
+
 ### 3. Mill the SFT Dataset (Stage 2)
 
 Run generation rollouts over the synthesized tasks. Trajectories run tools in sandboxes and traces distill hybrid reasoning:
@@ -159,7 +171,7 @@ sftmill generate \
   --jobs 4
 ```
 
-> **Compatible with any OpenAI-style backend:** Works out of the box with **vLLM**, **Ollama**, **DeepSeek**, **Groq**, **OpenAI**, **SGLang**, or **LiteLLM**. Just configure `--base-url` and `--model`.
+> **Compatible with any OpenAI-style backend:** Works out of the box with **vLLM**, **Ollama**, **DeepSeek**, **Groq**, **OpenAI**, **SGLang**, or **LiteLLM**. Repeat `--base-url` for each server; `--model` is the same on every URL. Token streaming to the terminal is on only when the total number of jobs is 1.
 
 ---
 
@@ -273,7 +285,16 @@ For agent training (`kind: trajectory`), `sftmill` executes real tool calls insi
 
 ## 📐 Declarative Curriculum Blueprints
 
-A curriculum YAML controls how `sftmill tasks` synthesizes problems:
+A curriculum YAML is a **distribution of categories**. `sftmill tasks` synthesizes each category on its own, so grain is the category list, not the total `count`.
+
+| Example | Role |
+| --- | --- |
+| [`configs/curriculum/code_agent_test.yaml`](configs/curriculum/code_agent_test.yaml) | Smoke agent mix (~32 rows). |
+| [`configs/curriculum/code_agent.yaml`](configs/curriculum/code_agent.yaml) | Tool-use trajectories + graded traces; harness expansion. |
+| [`configs/curriculum/code_instruct.yaml`](configs/curriculum/code_instruct.yaml) | Coding-session chat, 22×80 open traces. |
+| [`configs/curriculum/general_instruct.yaml`](configs/curriculum/general_instruct.yaml) | Ordinary conversation + identity, 80 categories / 4000 tasks. |
+
+To invent a new mix, point an LLM at those files and describe the distribution you want. **Use many narrow categories** (dozens, not a handful) or synthesis collapses to the few-shot example. Full workflow and a copy-paste authoring prompt: [Writing a curriculum](docs/writing_curricula.md). Field list: [Curriculum Specification](docs/spec.md).
 
 ```yaml
 name: code_agent_benchmark
@@ -299,7 +320,9 @@ categories:
 
 - **`exact`**: Graded answer must match the gold string exactly.
 - **`contains`**: Expected token or needle must appear in the assistant's final response or reasoning.
-- **`open`**: Open-ended conversational prose (requires `user_turns: 2` or `3` and validates multi-sentence responses).
+- **`open`**: Open-ended conversational prose (at least two sentences). Single-turn is valid. Set `user_turns: 2` or `3` only for multi-turn dialogues.
+
+Open traces inject [`configs/identity/alice.txt`](configs/identity/alice.txt) at **generate** unless the category sets `student_system: custom` or `off`. That identity file is a student system prompt. The harness id `alice` is a tool-call envelope, not the same thing.
 
 📖 *See the full [Curriculum Specification Reference](docs/spec.md).*
 
@@ -352,10 +375,10 @@ sftmill tasks \
 |---|---|---|
 | `--curriculum` | *required* | Path to curriculum YAML spec. |
 | `--out` | *required* | Destination path for synthesized tasks JSONL. |
-| `--base-url` | *required* | Base URL of the OpenAI-compatible endpoint. |
-| `--model` | *required* | Teacher model identifier. |
+| `--base-url` | *required* | OpenAI-compatible API root. Repeat for each server (same `--model`). |
+| `--model` | *required* | Teacher model identifier (shared across every `--base-url`). |
 | `--api-key` | `None` | API key (or omit for local models). |
-| `--jobs` | `3` | Parallel categories in flight. |
+| `--jobs` | `3` per URL | Categories in flight for the matching `--base-url`. One value applies to every URL; repeat once per URL to set each server. |
 | `--batch-size` | `5` | Tasks requested per synthesis prompt. |
 
 ---
@@ -383,9 +406,10 @@ sftmill generate \
 |---|---|---|
 | `--tasks` | *required* | Path to tasks JSONL file. |
 | `--out` | *required* | Output path (file `.jsonl` or directory for auto-sharding). |
+| `--base-url` | *required* | OpenAI-compatible API root. Repeat for each server (same `--model`). |
 | `--kind` | `both` | Filter by `trace`, `trajectory`, or `both`. |
 | `--max-steps` | `4` | Maximum tool-call rounds for trajectories. |
-| `--jobs` | `3` | Concurrent worker threads. |
+| `--jobs` | `3` per URL | Teacher calls in flight for the matching `--base-url`. One value applies to every URL; repeat once per URL to set each server. |
 | `--shard-size` | `1000` | Rows per shard file (`part-000000.jsonl`) when `--out` is a directory. |
 | `--progress-interval` | `30.0` | Seconds between stderr progress status lines. |
 
@@ -432,12 +456,16 @@ sftmill/
 │   ├── curriculum/               # Ready-to-use curriculum templates
 │   │   ├── code_agent.yaml       # Full agent curriculum (16 categories, tool use)
 │   │   ├── code_agent_test.yaml  # Fast test curriculum (32 sample tasks)
-│   │   └── code_instruct.yaml    # Multi-turn hybrid-reasoning instruct curriculum
+│   │   ├── code_instruct.yaml    # Multi-turn coding-session instruct mix
+│   │   └── general_instruct.yaml # Wide open instruct + identity (80 categories)
+│   ├── identity/
+│   │   └── alice.txt             # Default student system for open traces
 │   └── tasks/
 │       ├── examples.jsonl        # Minimal reference tasks
 │       └── code_agent_test.jsonl # Pre-synthesized task benchmark
 ├── docs/                         # In-depth architectural & technical documentation
 │   ├── spec.md                   # Curriculum YAML specification
+│   ├── writing_curricula.md      # How to author a many-category mix
 │   ├── multi_turn_hybrid_reasoning.md # In-depth guide on multi-turn CoT distillation
 │   ├── agent_trajectories.md     # Sandboxing, workspace tools & verification
 │   └── architecture.md           # Concurrency, data flow & system design
@@ -445,6 +473,7 @@ sftmill/
 │   ├── cli.py                    # Command-line interface
 │   ├── dataset.py                # Sharded writer, dataset iterator, group splitter
 │   ├── harness.py                # Multi-harness envelope translation
+│   ├── identity.py               # Default student system for open traces
 │   ├── progress.py               # Live background status reporting
 │   ├── schema.py                 # Message and tool validation
 │   ├── generate/
@@ -458,10 +487,11 @@ sftmill/
 │   └── tools/
 │       ├── python_sandbox.py     # Isolated timeout-capped Python runner
 │       └── workspace.py          # Hermetic file/bash/search workspace
-├── tests/                        # Comprehensive test suite (79 tests)
+├── tests/                        # Comprehensive test suite
 │   ├── test_cli.py
 │   ├── test_dataset.py
 │   ├── test_generate.py
+│   ├── test_instruct_mix.py
 │   ├── test_progress.py
 │   ├── test_sandbox.py
 │   ├── test_synthesize_tasks.py
@@ -476,6 +506,7 @@ sftmill/
 ## 📚 Comprehensive Documentation
 
 - 📖 **[Curriculum Specification](docs/spec.md)**: Schema rules, category options, match modes, and synthesis shapes.
+- ✍️ **[Writing a curriculum](docs/writing_curricula.md)**: Example YAMLs, LLM authoring workflow, and why you need many categories.
 - 🧠 **[Multi-Turn Hybrid-Reasoning Guide](docs/multi_turn_hybrid_reasoning.md)**: Deep dive into multi-turn chain-of-thought distillation and fine-tuning recipes.
 - 🛠 **[Agent Trajectories & Tool Use](docs/agent_trajectories.md)**: Sandboxed workspace tools, test execution (`check.py`), and harness envelopes.
 - 🏛 **[Architecture & System Design](docs/architecture.md)**: Internal dataflow, concurrency model, and leak-free group partitioning.
@@ -495,7 +526,7 @@ uv run --with pytest pytest
 ```
 
 ```text
-============================== 79 passed in 2.90s ==============================
+============================== 98 passed in 3.07s ==============================
 ```
 
 ---

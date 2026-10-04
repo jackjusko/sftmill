@@ -69,20 +69,26 @@ This document details the internal design and data flow of `sftmill`.
 ### 2.1 Curriculum Loader (`sftmill.generate.synthesize_tasks.load_curriculum`)
 - Parses and strictly validates YAML curricula.
 - Enforces presence of required keys (`id`, `count`, `kind`, `match`, `template`).
-- Validates constraints on `user_turns` (must be 2 or 3 for multi-turn traces), `match` modes, and `harnesses`.
+- Validates `user_turns` (2 or 3 when set), `student_system` (`default` / `custom` / `off`), match modes, and harnesses.
 
 ### 2.2 Task Synthesizer (`sftmill.generate.synthesize_tasks`)
-- Uses thread pool execution (`ThreadPoolExecutor`) across categories with the `--jobs` flag.
+- Uses thread pool execution (`ThreadPoolExecutor`) across categories.
+- Each in-flight category **borrows** one slot from `TeacherPool` (one client object per job, possibly on different `--base-url`s).
 - Batch synthesizes tasks using structured JSON output prompts and few-shot examples.
 - Automatically repairs malformed JSON using iterative prompt repair (`MAX_REPAIR_TURNS = 2`).
 - Expands multi-harness variants into linked task sibling rows sharing `group_id`.
+- Optional category `student_system`: `default` prepends [`configs/identity/alice.txt`](../configs/identity/alice.txt); `custom` requires a synthesized `system` string; `off` skips it.
 
-### 2.3 Teacher Client (`sftmill.teachers.openai_compat.OpenAICompatibleTeacher`)
+### 2.3 Teacher Client (`sftmill.teachers.openai_compat`)
 - Native Python standard library implementation (`urllib.request`) with zero heavy SDK dependencies.
-- Handles both streaming Server-Sent Events (SSE) and buffered completions.
-- Live token-level streaming display to stdout/stderr (or discarded during multi-worker execution).
+- `OpenAICompatibleTeacher` handles both streaming Server-Sent Events (SSE) and buffered completions.
+- `TeacherPool` is a fixed set of slots. `borrow()` blocks until a slot is free, then returns it.
+- Repeat `--base-url` to create slots on more than one server; `--jobs` is the slot count per URL (default 3).
+- Live token-level streaming display to stdout (discarded when total jobs > 1 so workers do not mix output).
 - Extracts both `content` and `reasoning_content` from streaming deltas and non-streaming responses.
 - Assembles fragmented tool calls across streaming chunks.
+
+Open `generate` traces save the student system on the SFT row. The teacher call uses that text plus an overlay (`TEACHER_OPEN_INSTRUCT`: no repo/files unless the user provided them; no tool XML). `student_system: default` re-reads the live identity file at generate. Exact/contains traces still send `task["messages"]` as written.
 
 ### 2.4 Hermetic Workspace Sandbox (`sftmill.tools.workspace.Workspace`)
 - Creates temporary directories for each trajectory rollout.

@@ -80,14 +80,17 @@ def test_open_two_turn_trace_keeps_both_teacher_replies():
     }
     rows = list(generate_traces([task], teacher))
     assert [message["role"] for message in rows[0]["messages"]] == [
-        "user", "assistant", "user", "assistant",
+        "system", "user", "assistant", "user", "assistant",
     ]
-    assert rows[0]["messages"][1]["content"] == _PROSE
-    assert rows[0]["messages"][3]["content"] == _PROSE_NEXT
-    assert rows[0]["messages"][1]["reasoning_content"] == "ask what is missing"
-    assert teacher.seen[0] == [("user", "Add a timeout.")]
-    assert teacher.seen[1][1] == ("assistant", _PROSE)
-    assert teacher.seen[1][2] == ("user", "Ten seconds, and do not edit yet.")
+    assert rows[0]["messages"][2]["content"] == _PROSE
+    assert rows[0]["messages"][4]["content"] == _PROSE_NEXT
+    assert rows[0]["messages"][2]["reasoning_content"] == "ask what is missing"
+    from sftmill.identity import default_system, teacher_system
+
+    assert teacher.seen[0][0] == ("system", teacher_system(default_system()))
+    assert teacher.seen[0][1] == ("user", "Add a timeout.")
+    assert teacher.seen[1][2] == ("assistant", _PROSE)
+    assert teacher.seen[1][3] == ("user", "Ten seconds, and do not edit yet.")
 
     short = Recording()
     short._replies[1] = {"content": "Ok."}
