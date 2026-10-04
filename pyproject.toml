@@ -50,9 +50,6 @@ dev = ["pytest"]
 [project.scripts]
 sftmill = "sftmill.cli:main"
 
-[tool.setuptools]
-license-files = ["LICENSE", "NOTICE"]
-
 [tool.setuptools.packages.find]
 where = ["src"]
 

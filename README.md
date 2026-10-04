@@ -498,7 +498,6 @@ sftmill/
 │   └── test_workspace_tools.py
 ├── pyproject.toml                # Project packaging & dependency specifications
 ├── CONTRIBUTING.md               # Contribution and testing guidelines
-├── NOTICE                        # Original author attribution
 └── LICENSE                       # Apache License 2.0
 ```
 
@@ -536,6 +535,4 @@ uv run --with pytest pytest
 
 Copyright 2026 [Jack Jusko](https://github.com/jackjusko).
 
-Distributed under the **Apache License, Version 2.0**. See [`LICENSE`](LICENSE) for the full terms.
-
-This project was originally created by Jack Jusko and is provided as-is for use in AI workflows. See [`NOTICE`](NOTICE).
+Distributed under the **Apache License, Version 2.0**. This project was originally created by Jack Jusko and is provided as-is for use in AI workflows. See [`LICENSE`](LICENSE) for the full terms.
