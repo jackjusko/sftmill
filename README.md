@@ -9,7 +9,7 @@
 
 <p align="center">
   <a href="https://github.com/jackjusko/sftmill/actions/workflows/ci.yml"><img src="https://img.shields.io/badge/CI-passing-2ea44f.svg" alt="CI Status"></a>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="License: MIT"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-Apache_2.0-blue.svg" alt="License: Apache 2.0"></a>
   <a href="pyproject.toml"><img src="https://img.shields.io/badge/Python-3.10%2B-blue.svg" alt="Python 3.10+"></a>
   <img src="https://img.shields.io/badge/Format-OpenAI%20Messages-green.svg" alt="Format: OpenAI Messages">
   <img src="https://img.shields.io/badge/Sandboxing-Hermetic%20Subprocess-orange.svg" alt="Sandboxing: Hermetic">
@@ -498,7 +498,8 @@ sftmill/
 │   └── test_workspace_tools.py
 ├── pyproject.toml                # Project packaging & dependency specifications
 ├── CONTRIBUTING.md               # Contribution and testing guidelines
-└── LICENSE                       # MIT License
+├── NOTICE                        # Original author attribution
+└── LICENSE                       # Apache License 2.0
 ```
 
 ---
@@ -533,4 +534,8 @@ uv run --with pytest pytest
 
 ## 📄 License
 
-Distributed under the **MIT License**. See [`LICENSE`](LICENSE) for details.
+Copyright 2026 [Jack Jusko](https://github.com/jackjusko).
+
+Distributed under the **Apache License, Version 2.0**. See [`LICENSE`](LICENSE) for the full terms.
+
+This project was originally created by Jack Jusko and is provided as-is for use in AI workflows. See [`NOTICE`](NOTICE).
